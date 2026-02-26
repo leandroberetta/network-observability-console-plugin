@@ -7,7 +7,7 @@ import {
   InfoAltIcon
 } from '@patternfly/react-icons';
 import * as React from 'react';
-import { getResourceSeverity, HealthStat } from './health-helper';
+import { getAllHealthItems, getResourceSeverity, HealthStat } from './health-helper';
 
 export interface HealthTabTitleProps {
   title: string;
@@ -27,10 +27,13 @@ export const HealthTabTitle: React.FC<HealthTabTitleProps> = ({ stats, title }) 
   ) : (
     <CheckCircleIcon className="icon healthy" />
   );
+  // Count = number of items to show in the tab (violations/recordings). For Global there is a single stat
+  // but we show N items inside it; for Nodes/Namespaces/Workloads we show one card per stat.
+  const count = stats.length === 1 ? getAllHealthItems(stats[0]).length : stats.length;
   return (
     <>
       <TabTitleIcon>{icon}</TabTitleIcon>
-      <TabTitleText>{title}</TabTitleText>
+      <TabTitleText>{`${title} (${count})`}</TabTitleText>
     </>
   );
 };
