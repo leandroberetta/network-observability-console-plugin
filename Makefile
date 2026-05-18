@@ -219,6 +219,27 @@ benchmark-server-compare: ## Compare benchmark results with baseline using bench
 		echo "Benchmark comparison completed. Review results above for any performance changes."; \
 	fi
 
+# Convenient targets for specific benchmark groups
+.PHONY: benchmark-export
+benchmark-export: ## Run export flows benchmarks
+	@go test -bench=BenchmarkExport -benchmem -benchtime=300ms ./pkg/server/ -run=^$$
+
+.PHONY: benchmark-large
+benchmark-large: ## Run large result sets benchmarks
+	@go test -bench=BenchmarkLargeResultSets -benchmem -benchtime=300ms ./pkg/server/ -run=^$$
+
+.PHONY: benchmark-filters
+benchmark-filters: ## Run filter-heavy query benchmarks (all views)
+	@go test -bench=BenchmarkFilterHeavy -benchmem -benchtime=300ms ./pkg/server/ -run=^$$
+
+.PHONY: benchmark-concurrent
+benchmark-concurrent: ## Run concurrent user scenario benchmarks (all views)
+	@go test -bench=BenchmarkConcurrent -benchmem -benchtime=300ms ./pkg/server/ -run=^$$
+
+.PHONY: benchmark-aggregations
+benchmark-aggregations: ## Run aggregation level benchmarks
+	@go test -bench="BenchmarkTopologyAggregations|BenchmarkOverviewAggregations" -benchmem -benchtime=300ms ./pkg/server/ -run=^$$
+
 .PHONY: serve
 serve: YQ ## Run backend
 	$(YQ) '.server.port |= 9001 | .server.metricsPort |= 9002 | .loki.useMocks |= false' ./config/sample-config.yaml > ./config/config.yaml

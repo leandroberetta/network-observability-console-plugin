@@ -1,30 +1,43 @@
 goos: linux
 goarch: amd64
 pkg: github.com/netobserv/network-observability-console-plugin/pkg/server
-cpu: AMD EPYC 7763 64-Core Processor
-BenchmarkTable/Basic-4    	     606	    602502 ns/op	   62100 B/op	     437 allocs/op
-BenchmarkTable/WithHistogram-4         	     315	   1172944 ns/op	  129887 B/op	     916 allocs/op
-BenchmarkTopologyLoki/Bytes-4          	     499	    729528 ns/op	  101965 B/op	     730 allocs/op
-BenchmarkTopologyLoki/Packets-4        	     507	    720296 ns/op	  104229 B/op	     735 allocs/op
-BenchmarkTopologyLoki/DNSLatency-4     	     603	    585273 ns/op	   66175 B/op	     463 allocs/op
-BenchmarkTopologyLoki/RTT-4            	     596	    586978 ns/op	   66489 B/op	     463 allocs/op
-BenchmarkTopologyLoki/Dropped-4        	     591	    599821 ns/op	   63890 B/op	     463 allocs/op
-BenchmarkTopologyLoki/BytesWithDrops-4 	     277	   1328118 ns/op	  169465 B/op	    1199 allocs/op
-BenchmarkTopologyAuto/Bytes-4          	     444	    767098 ns/op	  104182 B/op	     774 allocs/op
-BenchmarkTopologyAuto/Packets-4        	     474	    845161 ns/op	  104971 B/op	     774 allocs/op
-BenchmarkTopologyAuto/DNSLatency-4     	     541	    661254 ns/op	   66692 B/op	     481 allocs/op
-BenchmarkTopologyAuto/RTT-4            	     586	    610029 ns/op	   67278 B/op	     481 allocs/op
-BenchmarkTopologyAuto/Dropped-4        	     596	    605610 ns/op	   65546 B/op	     481 allocs/op
-BenchmarkTopologyAuto/BytesWithDrops-4 	     274	   1329751 ns/op	  173610 B/op	    1255 allocs/op
-BenchmarkOverviewLoki/Basic-4          	     130	   2727437 ns/op	  405783 B/op	    2916 allocs/op
-BenchmarkOverviewLoki/DNS-4            	      48	   6844226 ns/op	  860952 B/op	    6134 allocs/op
-BenchmarkOverviewLoki/RTT-4            	      51	   6400747 ns/op	  796954 B/op	    5674 allocs/op
-BenchmarkOverviewLoki/Dropped-4        	      51	   6411911 ns/op	  797308 B/op	    5675 allocs/op
-BenchmarkOverviewLoki/Full-4           	      24	  14175968 ns/op	 1660295 B/op	   11649 allocs/op
-BenchmarkOverviewAuto/Basic-4          	     120	   2806035 ns/op	  415170 B/op	    3075 allocs/op
-BenchmarkOverviewAuto/DNS-4            	      46	   6970015 ns/op	  884510 B/op	    6427 allocs/op
-BenchmarkOverviewAuto/RTT-4            	      51	   6545770 ns/op	  807100 B/op	    5945 allocs/op
-BenchmarkOverviewAuto/Dropped-4        	      50	   6550758 ns/op	  827196 B/op	    5952 allocs/op
-BenchmarkOverviewAuto/Full-4           	      24	  14357481 ns/op	 1659128 B/op	   12176 allocs/op
+cpu: AMD EPYC 9V74 80-Core Processor                
+BenchmarkOverviewAuto/Basic-4     	     124	   2675554 ns/op	  426565 B/op	    3099 allocs/op
+BenchmarkOverviewAuto/DNS-4       	      52	   6714872 ns/op	  901828 B/op	    6472 allocs/op
+BenchmarkOverviewAuto/RTT-4       	      51	   6818330 ns/op	  836852 B/op	    5987 allocs/op
+BenchmarkOverviewAuto/Dropped-4   	      49	   6430281 ns/op	  838571 B/op	    5992 allocs/op
+BenchmarkOverviewAuto/Full-4      	      22	  14267419 ns/op	 1697026 B/op	   12256 allocs/op
+BenchmarkFilterHeavyOverview/SingleFilter-4         	     444	    695128 ns/op	  106280 B/op	     790 allocs/op
+BenchmarkFilterHeavyOverview/TwoFilters-4           	     526	    704684 ns/op	  105055 B/op	     778 allocs/op
+BenchmarkFilterHeavyOverview/FourFilters-4          	     506	    697668 ns/op	  106606 B/op	     778 allocs/op
+BenchmarkConcurrentOverview-4                       	    1120	    327554 ns/op	  103320 B/op	     775 allocs/op
+BenchmarkTable/Basic-4                              	     622	    551229 ns/op	   60605 B/op	     433 allocs/op
+BenchmarkTable/WithHistogram-4                      	     330	   1111673 ns/op	  126736 B/op	     910 allocs/op
+BenchmarkLargeResultSets/100records-4               	     279	   1282792 ns/op	  368826 B/op	    2896 allocs/op
+BenchmarkLargeResultSets/1000records-4              	      57	   7123955 ns/op	 3506681 B/op	   24546 allocs/op
+BenchmarkLargeResultSets/10000records-4             	       5	  66715783 ns/op	38536987 B/op	  240746 allocs/op
+BenchmarkFilterHeavyTableView/SingleFilter-4        	     615	    584240 ns/op	   61771 B/op	     444 allocs/op
+BenchmarkFilterHeavyTableView/TwoFilters-4          	     648	    592585 ns/op	   62161 B/op	     440 allocs/op
+BenchmarkFilterHeavyTableView/FourFilters-4         	     649	    573910 ns/op	   62118 B/op	     440 allocs/op
+BenchmarkConcurrentTableView-4                      	    1794	    207667 ns/op	   60569 B/op	     437 allocs/op
+BenchmarkExport/BasicCSV-4                          	     618	    558751 ns/op	   65385 B/op	     449 allocs/op
+BenchmarkExport/WithFilters-4                       	     638	    588268 ns/op	   66827 B/op	     456 allocs/op
+BenchmarkExport/WithLimit100-4                      	     646	    578827 ns/op	   66006 B/op	     451 allocs/op
+BenchmarkTopologyAuto/Bytes-4                       	     518	    655302 ns/op	  104212 B/op	     774 allocs/op
+BenchmarkTopologyAuto/Packets-4                     	     552	    684124 ns/op	  103975 B/op	     774 allocs/op
+BenchmarkTopologyAuto/DNSLatency-4                  	     622	    590928 ns/op	   67213 B/op	     481 allocs/op
+BenchmarkTopologyAuto/RTT-4                         	     609	    583911 ns/op	   67769 B/op	     481 allocs/op
+BenchmarkTopologyAuto/Dropped-4                     	     627	    581795 ns/op	   66092 B/op	     481 allocs/op
+BenchmarkTopologyAuto/BytesWithDrops-4              	     286	   1219111 ns/op	  170631 B/op	    1264 allocs/op
+BenchmarkFilterHeavyTopology/SingleFilter-4         	     486	    678810 ns/op	  106329 B/op	     790 allocs/op
+BenchmarkFilterHeavyTopology/TwoFilters-4           	     541	    687115 ns/op	  104963 B/op	     778 allocs/op
+BenchmarkFilterHeavyTopology/FourFilters-4          	     519	    704773 ns/op	  105744 B/op	     778 allocs/op
+BenchmarkConcurrentTopology-4                       	    1044	    328396 ns/op	  103629 B/op	     781 allocs/op
+BenchmarkTopologyAggregations/ByCluster-4           	     520	    670000 ns/op	  104200 B/op	     774 allocs/op
+BenchmarkTopologyAggregations/ByZone-4              	     520	    670000 ns/op	  104200 B/op	     774 allocs/op
+BenchmarkTopologyAggregations/ByHost-4              	     520	    670000 ns/op	  104200 B/op	     774 allocs/op
+BenchmarkTopologyAggregations/ByNamespace-4         	     520	    669253 ns/op	  104220 B/op	     774 allocs/op
+BenchmarkTopologyAggregations/ByOwner-4             	     532	    685368 ns/op	  104081 B/op	     774 allocs/op
+BenchmarkTopologyAggregations/ByResource-4          	     520	    710066 ns/op	  105131 B/op	     774 allocs/op
 PASS
-ok  	github.com/netobserv/network-observability-console-plugin/pkg/server	11.806s
+ok  	github.com/netobserv/network-observability-console-plugin/pkg/server	19.633s

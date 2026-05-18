@@ -14,24 +14,60 @@ import (
 	"github.com/netobserv/network-observability-console-plugin/pkg/model"
 )
 
-// Helper function to setup mock servers for benchmarks
-func setupBenchmarkServers(useBothDataSources bool) (*httptest.Server, *httptest.Server, *httptest.Server, *http.Client) {
+const (
+	benchmarkMaxIdleConns        = 100
+	benchmarkMaxIdleConnsPerHost = 100
+	benchmarkIdleConnTimeout     = 90 * time.Second
+)
+
+type filterTest struct {
+	name   string
+	filter string
+}
+
+// Helper function to setup mock servers for benchmarks with configurable result size
+func setupBenchmarkServersWithSize(useBothDataSources bool, numRecords int) (*httptest.Server, *httptest.Server, *httptest.Server, *http.Client) {
 	// Setup mock Loki service
 	lokiMock := httpMock{}
-	matrixResponse, _ := json.Marshal(model.QueryResponse{
+	matrixResponse, err := json.Marshal(model.QueryResponse{
 		Status: "",
 		Data: model.QueryResponseData{
 			ResultType: model.ResultTypeMatrix,
 			Result:     model.Matrix{},
 		},
 	})
-	streamResponse, _ := json.Marshal(model.QueryResponse{
+	if err != nil {
+		panic("failed to marshal matrix benchmark response: " + err.Error())
+	}
+
+	// Generate mock stream data with specified number of records
+	streams := model.Streams{}
+	if numRecords > 0 {
+		entries := make([]model.Entry, numRecords)
+		// Use single timestamp for all entries to avoid calling time.Now() repeatedly
+		timestamp := time.Now()
+		logLine := `{"SrcAddr":"10.0.0.1","DstAddr":"10.0.0.2","SrcPort":8080,"DstPort":443,"Proto":6,"Bytes":1024,"Packets":10}`
+		for i := 0; i < numRecords; i++ {
+			entries[i] = model.Entry{
+				Timestamp: timestamp,
+				Line:      logLine,
+			}
+		}
+		streams = append(streams, model.Stream{
+			Labels:  map[string]string{"app": "test"},
+			Entries: entries,
+		})
+	}
+	streamResponse, err := json.Marshal(model.QueryResponse{
 		Status: "",
 		Data: model.QueryResponseData{
 			ResultType: model.ResultTypeStream,
-			Result:     model.Streams{},
+			Result:     streams,
 		},
 	})
+	if err != nil {
+		panic("failed to marshal stream benchmark response: " + err.Error())
+	}
 
 	lokiMock.On("ServeHTTP", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
 		req := args.Get(1).(*http.Request)
@@ -81,322 +117,135 @@ func setupBenchmarkServers(useBothDataSources bool) (*httptest.Server, *httptest
 	client := &http.Client{
 		Timeout: 10 * time.Second,
 		Transport: &http.Transport{
-			MaxIdleConns:        100,
-			MaxIdleConnsPerHost: 100,
-			IdleConnTimeout:     90 * time.Second,
+			MaxIdleConns:        benchmarkMaxIdleConns,
+			MaxIdleConnsPerHost: benchmarkMaxIdleConnsPerHost,
+			IdleConnTimeout:     benchmarkIdleConnTimeout,
 		},
 	}
 
 	return lokiSvc, promSvc, backendSvc, client
 }
 
-// BenchmarkTable measures Table View performance with and without histogram
-func BenchmarkTable(b *testing.B) {
-	lokiSvc, promSvc, backendSvc, client := setupBenchmarkServers(true)
-	defer lokiSvc.Close()
-	if promSvc != nil {
-		defer promSvc.Close()
-	}
-	defer backendSvc.Close()
-
-	b.Run("Basic", func(b *testing.B) {
-		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
-			req, _ := http.NewRequest("GET", backendSvc.URL+"/api/loki/flow/records", nil)
-			resp, err := client.Do(req)
-			if err != nil {
-				b.Fatalf("Request failed: %v", err)
-			}
-			resp.Body.Close()
-			if resp.StatusCode != http.StatusOK {
-				b.Fatalf("Expected 200, got %d", resp.StatusCode)
-			}
-		}
-	})
-
-	b.Run("WithHistogram", func(b *testing.B) {
-		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
-			// Get flow records
-			req1, _ := http.NewRequest("GET", backendSvc.URL+"/api/loki/flow/records", nil)
-			resp1, err := client.Do(req1)
-			if err != nil {
-				b.Fatalf("Flow records request failed: %v", err)
-			}
-			resp1.Body.Close()
-			if resp1.StatusCode != http.StatusOK {
-				b.Fatalf("Expected 200, got %d", resp1.StatusCode)
-			}
-
-			// Get histogram data
-			req2, _ := http.NewRequest("GET",
-				backendSvc.URL+"/api/flow/metrics?dataSource=auto&function=count&aggregateBy=app&type=Flows", nil)
-			resp2, err := client.Do(req2)
-			if err != nil {
-				b.Fatalf("Histogram metrics request failed: %v", err)
-			}
-			resp2.Body.Close()
-			if resp2.StatusCode != http.StatusOK {
-				b.Fatalf("Expected 200, got %d", resp2.StatusCode)
-			}
-		}
-	})
+// Helper function to setup mock servers for benchmarks (default 0 records)
+func setupBenchmarkServers(useBothDataSources bool) (*httptest.Server, *httptest.Server, *httptest.Server, *http.Client) {
+	return setupBenchmarkServersWithSize(useBothDataSources, 0)
 }
 
-// Helper to run a single topology query
-func runTopologyQuery(b *testing.B, client *http.Client, url, query string) {
-	req, _ := http.NewRequest("GET", url+query, nil)
+// Helper to cleanup benchmark servers
+func cleanupBenchmarkServers(lokiSvc, promSvc, backendSvc *httptest.Server) {
+	lokiSvc.Close()
+	if promSvc != nil {
+		promSvc.Close()
+	}
+	backendSvc.Close()
+}
+
+// Common filter test data used across table, topology, and overview benchmarks
+// Returns filter strings in URL-encoded format
+func getCommonFilterTests() []filterTest {
+	return []filterTest{
+		{
+			"SingleFilter",
+			"SrcK8S_Namespace%3Ddefault",
+		},
+		{
+			"TwoFilters",
+			"SrcK8S_Namespace%3Ddefault%2CSrcPort%3D8080",
+		},
+		{
+			"FourFilters",
+			"SrcK8S_Namespace%3Ddefault%2CSrcPort%3D8080%2CDstK8S_Namespace%3Dkube-system%2CProto%3D6",
+		},
+	}
+}
+
+// Helper to run a single flow records query (used by table view benchmarks)
+// Queries the /api/loki/flow/records endpoint
+func runFlowRecordsQuery(b *testing.B, client *http.Client, url, query string) {
+	req, err := http.NewRequest("GET", url+query, nil)
+	if err != nil {
+		b.Fatalf("Failed to create request for %s: %v", url+query, err)
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		b.Fatalf("Request failed: %v", err)
 	}
-	resp.Body.Close()
+	if resp.Body != nil {
+		resp.Body.Close()
+	}
 	if resp.StatusCode != http.StatusOK {
 		b.Fatalf("Expected 200, got %d", resp.StatusCode)
 	}
 }
 
-// BenchmarkTopologyLoki measures Topology View with Loki data source for all metric types
-func BenchmarkTopologyLoki(b *testing.B) {
-	lokiSvc, promSvc, backendSvc, client := setupBenchmarkServers(false)
-	defer lokiSvc.Close()
-	if promSvc != nil {
-		defer promSvc.Close()
+// Helper to run a single metrics query (used by topology and overview benchmarks)
+// Queries the /api/flow/metrics endpoint
+func runMetricsQuery(b *testing.B, client *http.Client, url, query string) {
+	req, err := http.NewRequest("GET", url+query, nil)
+	if err != nil {
+		b.Fatalf("Failed to create request for %s: %v", url+query, err)
 	}
-	defer backendSvc.Close()
-
-	tests := []struct {
-		name  string
-		query string
-	}{
-		{"Bytes", "/api/flow/metrics?dataSource=loki&aggregateBy=resource&function=rate&type=Bytes"},
-		{"Packets", "/api/flow/metrics?dataSource=loki&aggregateBy=resource&function=rate&type=Packets"},
-		{"DNSLatency", "/api/flow/metrics?dataSource=loki&aggregateBy=resource&function=avg&type=DnsLatencyMs"},
-		{"RTT", "/api/flow/metrics?dataSource=loki&aggregateBy=resource&function=avg&type=TimeFlowRttNs"},
-		{"Dropped", "/api/flow/metrics?dataSource=loki&aggregateBy=resource&function=rate&type=PktDropPackets"},
+	resp, err := client.Do(req)
+	if err != nil {
+		b.Fatalf("Request failed: %v", err)
 	}
-
-	for _, tt := range tests {
-		b.Run(tt.name, func(b *testing.B) {
-			b.ResetTimer()
-			for i := 0; i < b.N; i++ {
-				runTopologyQuery(b, client, backendSvc.URL, tt.query)
-			}
-		})
-	}
-
-	b.Run("BytesWithDrops", func(b *testing.B) {
-		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
-			runTopologyQuery(b, client, backendSvc.URL,
-				"/api/flow/metrics?dataSource=loki&aggregateBy=resource&function=rate&type=Bytes")
-			runTopologyQuery(b, client, backendSvc.URL,
-				"/api/flow/metrics?dataSource=loki&aggregateBy=resource&function=rate&type=PktDropPackets")
-		}
-	})
-}
-
-// BenchmarkTopologyAuto measures Topology View with Auto data source for all metric types
-func BenchmarkTopologyAuto(b *testing.B) {
-	lokiSvc, promSvc, backendSvc, client := setupBenchmarkServers(true)
-	defer lokiSvc.Close()
-	if promSvc != nil {
-		defer promSvc.Close()
-	}
-	defer backendSvc.Close()
-
-	tests := []struct {
-		name  string
-		query string
-	}{
-		{"Bytes", "/api/flow/metrics?dataSource=auto&aggregateBy=resource&function=rate&type=Bytes"},
-		{"Packets", "/api/flow/metrics?dataSource=auto&aggregateBy=resource&function=rate&type=Packets"},
-		{"DNSLatency", "/api/flow/metrics?dataSource=auto&aggregateBy=resource&function=avg&type=DnsLatencyMs"},
-		{"RTT", "/api/flow/metrics?dataSource=auto&aggregateBy=resource&function=avg&type=TimeFlowRttNs"},
-		{"Dropped", "/api/flow/metrics?dataSource=auto&aggregateBy=resource&function=rate&type=PktDropPackets"},
-	}
-
-	for _, tt := range tests {
-		b.Run(tt.name, func(b *testing.B) {
-			b.ResetTimer()
-			for i := 0; i < b.N; i++ {
-				runTopologyQuery(b, client, backendSvc.URL, tt.query)
-			}
-		})
-	}
-
-	b.Run("BytesWithDrops", func(b *testing.B) {
-		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
-			runTopologyQuery(b, client, backendSvc.URL,
-				"/api/flow/metrics?dataSource=auto&aggregateBy=resource&function=rate&type=Bytes")
-			runTopologyQuery(b, client, backendSvc.URL,
-				"/api/flow/metrics?dataSource=auto&aggregateBy=resource&function=rate&type=PktDropPackets")
-		}
-	})
-}
-
-// Overview page query builders
-func getBasicQueries(dataSource string) []string {
-	return []string{
-		"/api/flow/metrics?dataSource=" + dataSource + "&aggregateBy=namespace&function=rate&type=Bytes",
-		"/api/flow/metrics?dataSource=" + dataSource + "&aggregateBy=app&function=rate&type=Bytes",
-		"/api/flow/metrics?dataSource=" + dataSource + "&aggregateBy=namespace&function=rate&type=Packets",
-		"/api/flow/metrics?dataSource=" + dataSource + "&aggregateBy=app&function=rate&type=Packets",
-	}
-}
-
-func getDNSQueries(dataSource string) []string {
-	return []string{
-		"/api/flow/metrics?dataSource=" + dataSource + "&aggregateBy=namespace&function=avg&type=DnsLatencyMs",
-		"/api/flow/metrics?dataSource=" + dataSource + "&aggregateBy=app&function=avg&type=DnsLatencyMs",
-		"/api/flow/metrics?dataSource=" + dataSource + "&aggregateBy=namespace&function=p90&type=DnsLatencyMs",
-		"/api/flow/metrics?dataSource=" + dataSource + "&aggregateBy=app&function=p90&type=DnsLatencyMs",
-		"/api/flow/metrics?dataSource=" + dataSource + "&aggregateBy=DnsName&function=count&type=DnsFlows",
-		"/api/flow/metrics?dataSource=" + dataSource + "&aggregateBy=DnsFlagsResponseCode&function=count&type=DnsFlows",
-		"/api/flow/metrics?dataSource=" + dataSource + "&aggregateBy=app&function=count&type=DnsFlows",
-	}
-}
-
-func getRTTQueries(dataSource string) []string {
-	return []string{
-		"/api/flow/metrics?dataSource=" + dataSource + "&aggregateBy=namespace&function=min&type=TimeFlowRttNs",
-		"/api/flow/metrics?dataSource=" + dataSource + "&aggregateBy=app&function=min&type=TimeFlowRttNs",
-		"/api/flow/metrics?dataSource=" + dataSource + "&aggregateBy=namespace&function=avg&type=TimeFlowRttNs",
-		"/api/flow/metrics?dataSource=" + dataSource + "&aggregateBy=app&function=avg&type=TimeFlowRttNs",
-		"/api/flow/metrics?dataSource=" + dataSource + "&aggregateBy=namespace&function=p90&type=TimeFlowRttNs",
-		"/api/flow/metrics?dataSource=" + dataSource + "&aggregateBy=app&function=p90&type=TimeFlowRttNs",
-	}
-}
-
-func getDroppedQueries(dataSource string) []string {
-	return []string{
-		"/api/flow/metrics?dataSource=" + dataSource + "&aggregateBy=namespace&function=rate&type=PktDropPackets",
-		"/api/flow/metrics?dataSource=" + dataSource + "&aggregateBy=app&function=rate&type=PktDropPackets",
-		"/api/flow/metrics?dataSource=" + dataSource + "&aggregateBy=namespace&function=rate&type=PktDropBytes",
-		"/api/flow/metrics?dataSource=" + dataSource + "&aggregateBy=app&function=rate&type=PktDropBytes",
-		"/api/flow/metrics?dataSource=" + dataSource + "&aggregateBy=PktDropLatestState&function=rate&type=PktDropPackets",
-		"/api/flow/metrics?dataSource=" + dataSource + "&aggregateBy=PktDropLatestDropCause&function=rate&type=PktDropPackets",
-	}
-}
-
-// Helper to run overview queries
-func runOverviewQueries(b *testing.B, client *http.Client, url string, queries []string) {
-	for _, query := range queries {
-		req, _ := http.NewRequest("GET", url+query, nil)
-		resp, err := client.Do(req)
-		if err != nil {
-			b.Fatalf("Request failed: %v", err)
-		}
+	if resp.Body != nil {
 		resp.Body.Close()
-		if resp.StatusCode != http.StatusOK {
-			b.Fatalf("Expected 200, got %d", resp.StatusCode)
-		}
+	}
+	if resp.StatusCode != http.StatusOK {
+		b.Fatalf("Expected 200, got %d", resp.StatusCode)
 	}
 }
 
-// BenchmarkOverviewLoki measures Overview Page with Loki data source for all scenarios
-func BenchmarkOverviewLoki(b *testing.B) {
+// Helper to run multiple metrics queries (used by overview benchmarks)
+func runMetricsQueries(b *testing.B, client *http.Client, url string, queries []string) {
+	for _, query := range queries {
+		runMetricsQuery(b, client, url, query)
+	}
+}
+
+// BenchmarkExport measures Export Flows performance with CSV format across different scenarios
+func BenchmarkExport(b *testing.B) {
 	lokiSvc, promSvc, backendSvc, client := setupBenchmarkServers(false)
-	defer lokiSvc.Close()
-	if promSvc != nil {
-		defer promSvc.Close()
+	defer cleanupBenchmarkServers(lokiSvc, promSvc, backendSvc)
+
+	tests := []struct {
+		name   string
+		params string
+	}{
+		{
+			"BasicCSV",
+			"format=csv",
+		},
+		{
+			"WithFilters",
+			"format=csv&filters=SrcK8S_Namespace%3Ddefault",
+		},
+		{
+			"WithLimit100",
+			"format=csv&limit=100",
+		},
 	}
-	defer backendSvc.Close()
 
-	b.Run("Basic", func(b *testing.B) {
-		queries := getBasicQueries("loki")
-		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
-			runOverviewQueries(b, client, backendSvc.URL, queries)
-		}
-	})
-
-	b.Run("DNS", func(b *testing.B) {
-		queries := append(getBasicQueries("loki"), getDNSQueries("loki")...)
-		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
-			runOverviewQueries(b, client, backendSvc.URL, queries)
-		}
-	})
-
-	b.Run("RTT", func(b *testing.B) {
-		queries := append(getBasicQueries("loki"), getRTTQueries("loki")...)
-		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
-			runOverviewQueries(b, client, backendSvc.URL, queries)
-		}
-	})
-
-	b.Run("Dropped", func(b *testing.B) {
-		queries := append(getBasicQueries("loki"), getDroppedQueries("loki")...)
-		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
-			runOverviewQueries(b, client, backendSvc.URL, queries)
-		}
-	})
-
-	b.Run("Full", func(b *testing.B) {
-		queries := getBasicQueries("loki")
-		queries = append(queries, getDNSQueries("loki")...)
-		queries = append(queries, getRTTQueries("loki")...)
-		queries = append(queries, getDroppedQueries("loki")...)
-		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
-			runOverviewQueries(b, client, backendSvc.URL, queries)
-		}
-	})
-}
-
-// BenchmarkOverviewAuto measures Overview Page with Auto data source for all scenarios
-func BenchmarkOverviewAuto(b *testing.B) {
-	lokiSvc, promSvc, backendSvc, client := setupBenchmarkServers(true)
-	defer lokiSvc.Close()
-	if promSvc != nil {
-		defer promSvc.Close()
+	for _, tt := range tests {
+		b.Run(tt.name, func(b *testing.B) {
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				req, err := http.NewRequest("GET", backendSvc.URL+"/api/loki/export?"+tt.params, nil)
+				if err != nil {
+					b.Fatalf("Failed to create request for %s: %v", backendSvc.URL+"/api/loki/export?"+tt.params, err)
+				}
+				resp, err := client.Do(req)
+				if err != nil {
+					b.Fatalf("Request failed: %v", err)
+				}
+				if resp.Body != nil {
+					resp.Body.Close()
+				}
+				if resp.StatusCode != http.StatusOK {
+					b.Fatalf("Expected 200, got %d", resp.StatusCode)
+				}
+			}
+		})
 	}
-	defer backendSvc.Close()
-
-	b.Run("Basic", func(b *testing.B) {
-		queries := getBasicQueries("auto")
-		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
-			runOverviewQueries(b, client, backendSvc.URL, queries)
-		}
-	})
-
-	b.Run("DNS", func(b *testing.B) {
-		queries := append(getBasicQueries("auto"), getDNSQueries("auto")...)
-		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
-			runOverviewQueries(b, client, backendSvc.URL, queries)
-		}
-	})
-
-	b.Run("RTT", func(b *testing.B) {
-		queries := append(getBasicQueries("auto"), getRTTQueries("auto")...)
-		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
-			runOverviewQueries(b, client, backendSvc.URL, queries)
-		}
-	})
-
-	b.Run("Dropped", func(b *testing.B) {
-		queries := append(getBasicQueries("auto"), getDroppedQueries("auto")...)
-		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
-			runOverviewQueries(b, client, backendSvc.URL, queries)
-		}
-	})
-
-	b.Run("Full", func(b *testing.B) {
-		queries := getBasicQueries("auto")
-		queries = append(queries, getDNSQueries("auto")...)
-		queries = append(queries, getRTTQueries("auto")...)
-		queries = append(queries, getDroppedQueries("auto")...)
-		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
-			runOverviewQueries(b, client, backendSvc.URL, queries)
-		}
-	})
 }

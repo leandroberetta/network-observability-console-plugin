@@ -10,26 +10,35 @@ Server-side performance benchmarks in `server_perf_test.go` measure the plugin's
 
 ### How to Run
 
+**Using Make (Recommended):**
 ```bash
 # Run all benchmarks
 make benchmark-server
 
-# Or run directly with go test
-go test -bench=. -benchmem ./pkg/server/ -run=^$
-
 # Compare with baseline using benchstat (detects performance regressions)
-# First run creates baseline, subsequent runs compare against it
 make benchmark-server-compare
+
+# Run specific benchmark groups
+make benchmark-export          # Export flows benchmarks
+make benchmark-large           # Large result sets benchmarks
+make benchmark-filters         # Filter-heavy queries (all views)
+make benchmark-concurrent      # Concurrent user scenarios (all views)
+make benchmark-aggregations    # Aggregation level benchmarks
+```
+
+**Using go test directly:**
+```bash
+# Run all benchmarks
+go test -bench=. -benchmem ./pkg/server/ -run=^$
 
 # Run specific benchmark group
 go test -bench=BenchmarkTable -benchmem ./pkg/server/ -run=^$
-go test -bench=BenchmarkTopologyLoki -benchmem ./pkg/server/ -run=^$
-go test -bench=BenchmarkOverviewAuto -benchmem ./pkg/server/ -run=^$
+go test -bench=BenchmarkExport -benchmem ./pkg/server/ -run=^$
+go test -bench=BenchmarkFilterHeavy -benchmem ./pkg/server/ -run=^$
 
 # Run specific sub-benchmark
-go test -bench=BenchmarkTable/WithHistogram -benchmem ./pkg/server/ -run=^$
-go test -bench=BenchmarkTopologyLoki/DNS -benchmem ./pkg/server/ -run=^$
-go test -bench=BenchmarkOverviewAuto/Full -benchmem ./pkg/server/ -run=^$
+go test -bench=BenchmarkExport/ComplexQuery -benchmem ./pkg/server/ -run=^$
+go test -bench=BenchmarkFilterHeavyTableView/FourFilters -benchmem ./pkg/server/ -run=^$
 ```
 
 **Baseline Comparison with benchstat:**
@@ -78,22 +87,51 @@ Performance benchmarks run automatically on every pull request via GitHub Action
 - Basic: Flow records only (1 API call)
 - WithHistogram: Flow records + histogram metrics (2 API calls)
 
+**Export Flows:**
+The export endpoint (`/api/loki/export`) is used across all tabs (Traffic, Topology, Overview) with different query parameters:
+- BasicCSV: Basic CSV export with default parameters
+- WithFilters: Export with namespace filter (simulating filtered exports)
+- WithLimit100: Export with limit=100 records
+- ComplexQuery: Export with combined filters, limits, and column selection
+
+**Large Result Sets:**
+- 100records: Test with 100 flow records
+- 1000records: Test with 1,000 flow records
+- 10000records: Test with 10,000 flow records
+
+**Filter-Heavy Queries:**
+Tests performance impact of complex filtering across all views:
+- **Table View** (BenchmarkFilterHeavyTableView): 1, 2, and 4 filter combinations on `/api/loki/flow/records`
+- **Topology View** (BenchmarkFilterHeavyTopology): 1, 2, and 4 filters on `/api/flow/metrics` with resource aggregation
+- **Overview Page** (BenchmarkFilterHeavyOverview): 1, 2, and 4 filters on `/api/flow/metrics` with namespace aggregation
+
+**Aggregation Levels:**
+Tests different aggregation granularities that affect result set complexity:
+- **Topology Aggregations** (BenchmarkTopologyAggregations): By namespace, app, resource, owner
+- **Overview Aggregations** (BenchmarkOverviewAggregations): Namespace-level, app-level, and mixed aggregations
+
+**Concurrent User Scenarios:**
+Simulates multiple users accessing different views simultaneously:
+- BenchmarkConcurrentTableView: Parallel requests to table view endpoint
+- BenchmarkConcurrentTopology: Parallel requests to topology metrics endpoint
+- BenchmarkConcurrentOverview: Parallel requests to overview metrics endpoint (rotating through basic queries)
+
 **Topology Page:**
 The Topology page makes 1-2 API calls depending on the selected metric and whether packet drop is enabled:
-- Bytes Rate (Loki/Auto): 1 call for bytes rate metric
-- Packets Rate (Loki/Auto): 1 call for packets rate metric
-- DNS Latency (Loki/Auto): 1 call for DNS latency metric
-- RTT (Loki/Auto): 1 call for TCP RTT metric
-- Dropped Packets (Loki/Auto): 1 call for dropped packets metric
-- Bytes + Drops (Loki/Auto): 2 calls for bytes rate + dropped packets
+- Bytes Rate (Auto): 1 call for bytes rate metric
+- Packets Rate (Auto): 1 call for packets rate metric
+- DNS Latency (Auto): 1 call for DNS latency metric
+- RTT (Auto): 1 call for TCP RTT metric
+- Dropped Packets (Auto): 1 call for dropped packets metric
+- Bytes + Drops (Auto): 2 calls for bytes rate + dropped packets
 
 **Overview Page:**
 The Overview page makes different numbers of API calls depending on which features are enabled:
-- Basic (Loki/Auto): 4 calls for Bytes + Packets rate metrics
-- Basic + DNS (Loki/Auto): 11 calls for Basic + DNS latency/names/response codes
-- Basic + RTT (Loki/Auto): 10 calls for Basic + TCP RTT metrics
-- Basic + Dropped (Loki/Auto): 10 calls for Basic + Packet drop metrics
-- Full (Loki/Auto): 23 calls for all features enabled
+- Basic (Auto): 4 calls for Bytes + Packets rate metrics
+- Basic + DNS (Auto): 11 calls for Basic + DNS latency/names/response codes
+- Basic + RTT (Auto): 10 calls for Basic + TCP RTT metrics
+- Basic + Dropped (Auto): 10 calls for Basic + Packet drop metrics
+- Full (Auto): 23 calls for all features enabled
 
 **Notes:**
 - All measurements exclude actual backend query time (mocked responses)
@@ -133,18 +171,27 @@ These benchmarks measure **server-side processing time only**, with:
 |------------------------------------|-------------|-------------------------------------------------|
 | Table View (Flow Records)          | ✅ Covered  | `/api/loki/flow/records` (1 call)               |
 | Table View + Histogram             | ✅ Covered  | Records + histogram metrics (2 calls)           |
-| Topology - Bytes Rate (Loki/Auto)  | ✅ Covered  | 1 call: Bytes rate metric                       |
-| Topology - Packets Rate (Loki/Auto)| ✅ Covered  | 1 call: Packets rate metric                     |
-| Topology - DNS Latency (Loki/Auto) | ✅ Covered  | 1 call: DNS latency metric                      |
-| Topology - RTT (Loki/Auto)         | ✅ Covered  | 1 call: TCP RTT metric                          |
-| Topology - Dropped (Loki/Auto)     | ✅ Covered  | 1 call: Dropped packets metric                  |
-| Topology - Bytes + Drops (Loki/Auto)| ✅ Covered | 2 calls: Bytes rate + dropped packets           |
-| Overview Basic (Loki/Auto)         | ✅ Covered  | 4 calls: Bytes + Packets rates                  |
-| Overview + DNS (Loki/Auto)         | ✅ Covered  | 11 calls: Basic + DNS latency/names/codes       |
-| Overview + RTT (Loki/Auto)         | ✅ Covered  | 10 calls: Basic + TCP RTT metrics               |
-| Overview + Dropped (Loki/Auto)     | ✅ Covered  | 10 calls: Basic + Packet drop metrics           |
-| Overview Full (Loki/Auto)          | ✅ Covered  | 23 calls: All features enabled                  |
-| Export Flows                       | ⚠️ Future   | Can be added if needed                          |
+| Topology - Bytes Rate (Auto)       | ✅ Covered  | 1 call: Bytes rate metric                       |
+| Topology - Packets Rate (Auto)     | ✅ Covered  | 1 call: Packets rate metric                     |
+| Topology - DNS Latency (Auto)      | ✅ Covered  | 1 call: DNS latency metric                      |
+| Topology - RTT (Auto)              | ✅ Covered  | 1 call: TCP RTT metric                          |
+| Topology - Dropped (Auto)          | ✅ Covered  | 1 call: Dropped packets metric                  |
+| Topology - Bytes + Drops (Auto)    | ✅ Covered  | 2 calls: Bytes rate + dropped packets           |
+| Overview Basic (Auto)              | ✅ Covered  | 4 calls: Bytes + Packets rates                  |
+| Overview + DNS (Auto)              | ✅ Covered  | 11 calls: Basic + DNS latency/names/codes       |
+| Overview + RTT (Auto)              | ✅ Covered  | 10 calls: Basic + TCP RTT metrics               |
+| Overview + Dropped (Auto)          | ✅ Covered  | 10 calls: Basic + Packet drop metrics           |
+| Overview Full (Auto)               | ✅ Covered  | 23 calls: All features enabled                  |
+| Export Flows (CSV)                 | ✅ Covered  | CSV export with filters, limits, columns        |
+| Large Result Sets (Table)          | ✅ Covered  | 100, 1K, 10K flow records                       |
+| Filter-Heavy Queries (Table)       | ✅ Covered  | 1, 2, 4 filters on flow records                 |
+| Filter-Heavy Queries (Topology)    | ✅ Covered  | 1, 2, 4 filters on topology metrics             |
+| Filter-Heavy Queries (Overview)    | ✅ Covered  | 1, 2, 4 filters on overview metrics             |
+| Topology Aggregations              | ✅ Covered  | Namespace, app, resource, owner levels          |
+| Overview Aggregations              | ✅ Covered  | Namespace, app, and mixed aggregations          |
+| Concurrent Users (Table)           | ✅ Covered  | Parallel load on flow records endpoint          |
+| Concurrent Users (Topology)        | ✅ Covered  | Parallel load on topology metrics endpoint      |
+| Concurrent Users (Overview)        | ✅ Covered  | Parallel load on overview metrics endpoint      |
 | Resource Endpoints                 | ⚠️ Future   | Can be added if needed                          |
 | Prometheus-only Data Source        | ⚠️ Future   | Requires Prometheus metrics inventory setup     |
 
@@ -229,9 +276,8 @@ netstat -an | grep TIME_WAIT | wc -l
 
 ### Future Improvements
 
-Additional benchmarks can be added for:
-- Export flows endpoint with different formats
-- Large result set handling
-- Filter-heavy queries
-- Concurrent user scenarios
+Additional benchmarks that can be added:
+- Resource endpoints (`/resources/clusters`, `/resources/namespaces`, etc.)
 - Prometheus-only data source (requires metrics inventory configuration)
+- Additional export formats beyond CSV
+- Real-world query patterns from production traffic
