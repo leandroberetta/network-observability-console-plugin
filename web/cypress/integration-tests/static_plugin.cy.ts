@@ -83,7 +83,6 @@ describe('(OCP-84156 OCP-88744) StaticPlugin test with Status Check', { tags: ['
         it("(OCP-88744, kapjain) Verify status indicator on Network Health page", function () {
             cy.visit('/network-health')
 
-            // cy.get('#content-scrollable', { timeout: 30000 }).should('exist')
             cy.get(flowcollectorStatusSelectors.statusIndicator).should('exist')
                 .find('span span').trigger('mouseenter', { force: true })
             cy.get(flowcollectorStatusSelectors.statusTooltip, { timeout: 10000 })
@@ -95,7 +94,6 @@ describe('(OCP-84156 OCP-88744) StaticPlugin test with Status Check', { tags: ['
         it("(OCP-88744, kapjain) Verify status indicator on Network Traffic page", function () {
             cy.visit('/netflow-traffic')
 
-            // cy.get('#overview-container', { timeout: 60000 }).should('exist')
             cy.get(flowcollectorStatusSelectors.statusIndicator).should('exist')
                 .find('span span').trigger('mouseenter', { force: true })
             cy.get(flowcollectorStatusSelectors.statusTooltip, { timeout: 10000 })
